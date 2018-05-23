@@ -4,8 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
+	"time"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/smallnest/rpcx/client"
 	"github.com/smallnest/rpcx/server"
@@ -22,7 +24,7 @@ type WorkerRPCClient struct {
 
 var (
 	khronosRPCAddr = flag.String("khronosRPCAddr", "tcp@localhost:10005", "khronos rpc server address")
-	addr           = flag.String("addr", "127.0.0.1:9001", "worker server address")
+	addr           = flag.String("addr", "127.0.0.1:9002", "worker server address")
 )
 
 func main() {
@@ -42,9 +44,26 @@ func main() {
 	}
 
 	//start up
-	rc.ServNodeReg()
 	// rc.MakeJob()
+
+	go func() {
+		for {
+			conn, err := net.Dial("tcp", *addr)
+			if err != nil && conn == nil {
+				log.Error("net.Dial: ", err, conn)
+			} else {
+				//after listen running
+				rc.ServNodeReg()
+				conn.Close()
+				return
+			}
+
+			time.Sleep(2 * time.Second)
+		}
+	}()
+
 	rs.listenRPC()
+
 	select {}
 }
 
@@ -94,11 +113,12 @@ func (rs *WorkerRPCServer) Pong(ctx context.Context, args *struct{}, reply *khro
 //ServNodeReg offer that register a addr to etcd by rpc
 func (rc *WorkerRPCClient) ServNodeReg() {
 	servNode := &khronos.Processor{
-		Application: "spider",
-		NodeName:    "server-001",
-		IP:          "127.0.0.1",
-		Port:        9001,
-		Status:      true,
+		Application:       "spider",
+		NodeName:          "server-001",
+		IP:                "127.0.0.1",
+		Port:              9002,
+		MaxExecutionLimit: 10,
+		Status:            true,
 	}
 
 	replay := &khronos.RPCReply{}

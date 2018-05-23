@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/go-ini/ini"
+	log "github.com/sirupsen/logrus"
 	"github.com/voxelbrain/goptions"
 )
 
@@ -14,6 +14,7 @@ type Configuration struct {
 	Runmode  string
 	NodeName string
 	LogLevel string
+	LogPath  string
 	//for communicating between servers in cluster
 	BindIP   string
 	BindPort int
@@ -73,6 +74,7 @@ func ReadConfig() *Configuration {
 		Runmode:         Options.Env,
 		NodeName:        cfg.Section("").Key("node-name").String(),
 		LogLevel:        cfg.Section("").Key("log-level").String(),
+		LogPath:         cfg.Section("").Key("log-path").String(),
 		BindIP:          cfg.Section("").Key("bind-ip").String(),
 		BindPort:        cfg.Section("").Key("bind-port").MustInt(),
 		RPCPort:         cfg.Section("").Key("rpc-port").MustInt(),

@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/smallnest/rpcx/client"
 	"github.com/smallnest/rpcx/server"
 )
@@ -38,9 +38,22 @@ func listenRPC(a *Agent) {
 	s.Serve("tcp", addr)
 }
 
+// it means that the client is down when servers accept a ServNodeReg request.
 func (r *RPCServer) ServNodeReg(ctx context.Context, args *Processor, reply *RPCReply) error {
+	// need to remove unfinished executions
+	err := r.agent.store.DeleteExecutionsByNodeName(args.NodeName)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"err": err,
+		}).Error("remove unfinished executions before ServNodeReg.SetProcessor")
+	}
 
-	err := r.agent.store.SetProcessor(args)
+	// a maxinum number that server can do
+	if args.MaxExecutionLimit == 0 {
+		args.MaxExecutionLimit = MaxExecutionLimit
+	}
+
+	err = r.agent.store.SetProcessor(args)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"processor": args,
@@ -148,19 +161,45 @@ func (rc *RPCClient) ExecutionDo(args *Execution) {
 
 //Ping do nothing but just call pong
 func (rc *RPCClient) Ping(node *Processor) {
-	addr := fmt.Sprintf("tcp@%s:%d", node.IP, node.Port)
+	for {
+		addr := fmt.Sprintf("tcp@%s:%d", node.IP, node.Port)
+		d := client.NewPeer2PeerDiscovery(addr, "")
 
-	d := client.NewPeer2PeerDiscovery(addr, "")
-	rc.xclient = client.NewXClient("Worker", client.Failtry, client.RandomSelect, d, client.DefaultOption)
-	defer rc.xclient.Close()
+		rc.xclient = client.NewXClient("Worker", client.Failtry, client.RandomSelect, d, client.DefaultOption)
+		defer rc.xclient.Close()
 
-	rpcReply := &RPCReply{}
-	err := rc.xclient.Call(context.Background(), "Pong", &struct{}{}, rpcReply)
-	if err != nil || rpcReply.Success == false {
 		log.WithFields(log.Fields{
-			"err": err,
-		}).Error("PING: failed to call")
-		rc.agent.store.DeleteExecutionsByNodeName(node.NodeName)
+			"addr": addr,
+		}).Debug("PING in a cyclic")
+
+		rpcReply := &RPCReply{}
+		err := rc.xclient.Call(context.Background(), "Pong", &struct{}{}, rpcReply)
+
+		log.WithFields(log.Fields{
+			"addr":  addr,
+			"reply": rpcReply,
+		}).Debug("PING reply")
+
+		if err != nil || rpcReply.Success == false {
+			log.WithFields(log.Fields{
+				"err": err,
+			}).Error("PING: failed to call")
+
+			err := rc.agent.store.DeleteExecutionsByNodeName(node.NodeName)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"err": err,
+				}).Error("remove unfinished executions after ping failed")
+			}
+
+			key := fmt.Sprintf("%s:%d", node.IP, node.Port)
+			if _, err := rc.agent.store.DeleteProcessor(node.Application, key); err != nil {
+				log.Error("ping error deleting processor: ", err)
+			}
+
+			break
+		}
+		time.Sleep(2 * time.Second)
 	}
 }
 

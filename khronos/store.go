@@ -2,14 +2,13 @@ package khronos
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/abronan/valkeyrie"
 	"github.com/abronan/valkeyrie/store"
 	etcd "github.com/abronan/valkeyrie/store/etcd/v3"
+	log "github.com/sirupsen/logrus"
 )
 
 const MaxExecutions = 200
@@ -140,20 +139,48 @@ func (s *Store) DeleteJob(name string) (*Job, error) {
 	return job, nil
 }
 
+func (s *Store) WatchJobsTree() (<-chan []*store.KVPair, error) {
+	stopCh := make(<-chan struct{})
+	dir := s.keyspace + "/jobs"
+
+	isEx, _ := s.Client.Exists(dir, nil)
+	if !isEx {
+		j := &Job{
+			Name:        "watch",
+			Schedule:    "@yearly",
+			JobType:     "rpc",
+			Disabled:    true,
+			Concurrency: "forbid",
+			Application: "system",
+		}
+		if err := s.SetJob(j); err != nil {
+			log.Error(err)
+		}
+
+	}
+
+	events, err := s.Client.WatchTree(dir, stopCh, nil)
+	if err != nil {
+		log.Error(err)
+	}
+
+	return events, err
+}
+
 // Store a processor
 func (s *Store) SetProcessor(p *Processor) error {
 	addr := fmt.Sprintf("%s:%d", p.IP, p.Port)
 	key := fmt.Sprintf("%s/processors/%s/%s", s.keyspace, p.Application, addr)
 
 	// Get if the requested processor already exist
-	ej, err := s.GetProcessor(p.Application, addr)
-	if err != nil && err != store.ErrKeyNotFound {
-		return err
-	}
-	if ej != nil {
-		err = errors.New(fmt.Sprintf("the requested addr '%s' has already exist", addr))
-		return err
-	}
+	// ej, err := s.GetProcessor(p.Application, addr)
+	// if err != nil && err != store.ErrKeyNotFound {
+	// 	return err
+	// }
+	// if ej != nil {
+	// 	err = errors.New(fmt.Sprintf("the requested addr '%s' has already exist", addr))
+	// 	return err
+	// }
 
 	pJSON, _ := json.Marshal(p)
 
@@ -265,6 +292,35 @@ func (s *Store) GetProcessorAddrs(app string) (map[string]string, error) {
 	}
 	return addrKVPair, err
 
+}
+
+//You can use watches to watch modifications on a key. First you need to check if the key exists.
+//If this is not the case, we need to create it using the Put function.
+func (s *Store) WatchProcessorTree() (<-chan []*store.KVPair, error) {
+	stopCh := make(<-chan struct{})
+	dir := s.keyspace + "/processors"
+
+	isEx, _ := s.Client.Exists(dir, nil)
+	if !isEx {
+		p := &Processor{
+			Application: "system",
+			NodeName:    "khronos01",
+			IP:          "127.0.0.1",
+			Port:        10005,
+			Status:      true,
+		}
+		if err := s.SetProcessor(p); err != nil {
+			log.Error(err)
+		}
+
+	}
+
+	events, err := s.Client.WatchTree(dir, stopCh, nil)
+	if err != nil {
+		log.Error(err)
+	}
+
+	return events, err
 }
 
 func (s *Store) GetExecutionsAll() ([]*Execution, error) {

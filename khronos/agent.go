@@ -1,10 +1,13 @@
 package khronos
 
 import (
+	"encoding/json"
+	"fmt"
 	"math/rand"
+	"net"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 type Agent struct {
@@ -23,6 +26,7 @@ func (a *Agent) Run() {
 
 func NewAgent(config *Configuration) *Agent {
 	a := &Agent{config: config}
+	InitLogger(config.LogLevel, config.LogPath)
 	return a
 }
 
@@ -37,8 +41,24 @@ func (a *Agent) StartServer() {
 	a.store = NewStore(a.config.Backend, a.config.BackendMachines, a.config.Keyspace)
 	a.sched = NewScheduler()
 	a.sched.Agent = a
-	a.Schedule()
-	a.HeartBeat()
+
+	go func() {
+		for {
+			rpcSrvAddr := fmt.Sprintf("%s:%d", a.config.BindIP, a.config.RPCPort)
+			conn, err := net.Dial("tcp", rpcSrvAddr)
+			if err != nil && conn == nil {
+				fmt.Println("net.Dial: ", rpcSrvAddr, err, conn)
+			} else {
+				go a.HeartBeat()
+				go a.Schedule()
+				conn.Close()
+				return
+			}
+
+			time.Sleep(2 * time.Second)
+		}
+	}()
+
 	listenRPC(a)
 }
 
@@ -58,10 +78,35 @@ func (a *Agent) HeartBeat() {
 	rc := &RPCClient{
 		agent: a,
 	}
-	nodes, err := a.store.GetProcessors()
-	if err == nil {
-		for _, node := range nodes {
-			go rc.Ping(node)
+
+	events, err := a.store.WatchProcessorTree()
+	log.WithFields(log.Fields{
+		"err":    err,
+		"events": events,
+	}).Debug("Watch Processor")
+
+	for {
+		select {
+		case pairs := <-events:
+			// Do something with events
+			for _, pair := range pairs {
+				node := &Processor{}
+				//skipping del event
+				if len(pair.Value) == 0 {
+					continue
+				}
+				if err := json.Unmarshal([]byte(string(pair.Value)), &node); err != nil {
+					log.Error(err)
+				} else {
+					log.WithFields(log.Fields{
+						"node": node,
+					}).Debug("HeartBeat.events")
+
+					time.Sleep(2 * time.Second)
+					go rc.Ping(node)
+				}
+
+			}
 		}
 	}
 
@@ -108,11 +153,11 @@ func (a *Agent) GetWorkerRPCAddr(ex *Execution) []*Processor {
 		log.WithFields(log.Fields{
 			"Application": ex.Application,
 			"err":         err,
-		}).Error("agent.getWorkerRPCAddr called store.GetProcessorsByApp.")
+		}).Error("agent.getWorkerRPCAddr don't got any processor.")
 		return nil
 	}
 
-	if ex.Concurrency == "forbid" {
+	if ex.Concurrency == "forbid" && len(srvAddr) > 0 {
 		rand.Seed(time.Now().Unix())
 		idx := rand.Intn(len(srvAddr))
 		srvAddrRand := make([]*Processor, 0)

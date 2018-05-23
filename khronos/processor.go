@@ -1,12 +1,15 @@
 package khronos
 
 type Processor struct {
-	Application string
-	NodeName    string
-	IP          string
-	Port        int
-	Status      bool
+	Application       string
+	NodeName          string
+	IP                string
+	Port              int
+	Status            bool
+	MaxExecutionLimit int
 }
+
+const MaxExecutionLimit = 10
 
 type int64arr []int64
 

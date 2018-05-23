@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/mitchellh/cli"
+	log "github.com/sirupsen/logrus"
 )
 
 const (

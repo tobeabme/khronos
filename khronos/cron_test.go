@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/robfig/cron"
+	log "github.com/sirupsen/logrus"
 )
 
 // Many tests schedule a job for every second, and then wait at most a second
