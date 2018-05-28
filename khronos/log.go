@@ -12,9 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func init() {
-	InitLogger("debug", "./logs/")
-}
+// var log = logrus.New()
 
 func InitLogger(logLevel string, logPath string) {
 	initLogrus(logLevel, logPath)
@@ -27,6 +25,12 @@ func initLogrus(logLevel string, logPath string) {
 		level = log.InfoLevel
 	}
 	log.SetLevel(level)
+
+	if logPath == "stdout" {
+		log.SetFormatter(&log.TextFormatter{})
+		log.SetOutput(os.Stdout)
+		return
+	}
 
 	//set filename of log
 	exeName := filepath.Base(os.Args[0])

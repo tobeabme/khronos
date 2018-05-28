@@ -65,12 +65,66 @@ func (a *Agent) StartServer() {
 //Schedule is reponsible for adding job to cron.
 //Start or restart scheduler
 func (a *Agent) Schedule() {
-	log.Debug("agent.schedule has been called...")
-	jobs, err := a.store.GetJobs()
-	if err != nil {
-		log.Error("agent.schedule", err)
+	for {
+		log.Debug("agent.schedule has been invoked.")
+		jobs, err := a.store.GetJobs()
+		if err != nil {
+			log.Error("agent.schedule", err)
+		}
+		a.sched.Restart(jobs)
+		time.Sleep(15 * time.Minute)
 	}
-	a.sched.Restart(jobs)
+
+	//===========================================
+	//expect only watch create event,but put has both event add and update
+	// events, err := a.store.WatchJobsTree()
+	// log.WithFields(log.Fields{
+	// 	"err":    err,
+	// 	"events": events,
+	// }).Debug("Watch Jobs")
+	// start := 0
+
+	// for {
+	// 	select {
+	// 	case pairs := <-events:
+	// 		start++
+	// 		// Do something with events
+	// 		var jobs []*Job
+	// 		var onewayJobs []*Job
+	// 		for _, pair := range pairs {
+	// 			job := &Job{}
+	// 			//skipping del event
+	// 			if len(pair.Value) == 0 {
+	// 				continue
+	// 			}
+	// 			if err := json.Unmarshal([]byte(string(pair.Value)), &job); err != nil {
+	// 				log.Error(err)
+	// 			} else {
+	// 				schedule := job.Schedule
+	// 				schedule = strings.Trim(schedule, "")
+	// 				if schedule == "@oneway" {
+	// 					onewayJobs = append(onewayJobs, job)
+	// 				} else {
+	// 					jobs = append(jobs, job)
+	// 				}
+
+	// 			}
+
+	// 		}
+	// 		if start == 1 {
+	// 			log.WithFields(log.Fields{
+	// 				"start": start,
+	// 			}).Debug("sched restart")
+	// 			a.sched.Restart(jobs)
+	// 		} else {
+	// 			log.WithFields(log.Fields{
+	// 				"start": start,
+	// 			}).Debug("sched start")
+	// 			a.sched.Start(jobs)
+	// 		}
+
+	// 	}
+	// }
 }
 
 //HeartBeat detect work node
@@ -117,17 +171,17 @@ func (a *Agent) Do(ex *Execution) {
 		"ex": ex,
 	}).Debug("agent.Do has been trigger.")
 
-	srvAddr := a.GetWorkerRPCAddr(ex)
+	srvAddr := a.GetWorkerRPCAddr(ex, "")
 	log.WithFields(log.Fields{
 		"ex":      ex,
 		"srvAddr": srvAddr,
-	}).Debug("agent.exec invoked agent.GetWorkerRPCAddr to get worker nodes.")
+	}).Debug("agent.Do invoked agent.GetWorkerRPCAddr to get worker nodes.")
 
 	if srvAddr == nil {
 		log.WithFields(log.Fields{
 			"ex":      ex,
 			"srvAddr": srvAddr,
-		}).Error("agent.exec Not found any worker node.")
+		}).Error("agent.Do Not found any worker node.")
 
 	} else {
 		rc := &RPCClient{
@@ -143,7 +197,7 @@ func (a *Agent) Do(ex *Execution) {
 
 }
 
-func (a *Agent) GetWorkerRPCAddr(ex *Execution) []*Processor {
+func (a *Agent) GetWorkerRPCAddr(ex *Execution, rebalance string) []*Processor {
 	log.WithFields(log.Fields{
 		"ex": ex,
 	}).Debug("agent.getWorkerRPCAddr has been called.")
@@ -157,12 +211,37 @@ func (a *Agent) GetWorkerRPCAddr(ex *Execution) []*Processor {
 		return nil
 	}
 
+	srvAddr = ex.CheckCounter(srvAddr)
+
 	if ex.Concurrency == "forbid" && len(srvAddr) > 0 {
-		rand.Seed(time.Now().Unix())
-		idx := rand.Intn(len(srvAddr))
-		srvAddrRand := make([]*Processor, 0)
-		srvAddrRand = append(srvAddrRand, srvAddr[idx])
-		return srvAddrRand
+
+		switch rebalance {
+		case "random":
+			rand.Seed(time.Now().Unix())
+			idx := rand.Intn(len(srvAddr))
+			srvAddrRand := make([]*Processor, 0)
+			srvAddrRand = append(srvAddrRand, srvAddr[idx])
+
+			log.WithFields(log.Fields{
+				"srvAddr": srvAddr[idx],
+			}).Debug("agent.GetWorkerRPCAddr random selection")
+
+			return srvAddrRand
+
+		// return a processor that being the least amount of undo of processor
+		default:
+			idx := 0
+			srvAddrDef := make([]*Processor, 0)
+			srvAddrDef = append(srvAddrDef, srvAddr[idx])
+
+			log.WithFields(log.Fields{
+				"srvAddr": srvAddr[idx],
+			}).Debug("agent.GetWorkerRPCAddr minimum selection by undone")
+
+			return srvAddrDef
+
+		}
+
 	}
 
 	return srvAddr

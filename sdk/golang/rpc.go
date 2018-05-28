@@ -164,7 +164,7 @@ func (rc *WorkerRPCClient) ExecutionDone(args *khronos.Execution, done bool) {
 	if err != nil {
 		log.Error("failed to call: ", err)
 	}
-	fmt.Println("wokr done", replay)
+	fmt.Println("work done", args, replay)
 }
 
 func SetXClient() client.XClient {

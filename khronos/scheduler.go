@@ -1,6 +1,8 @@
 package khronos
 
 import (
+	"strings"
+
 	"github.com/robfig/cron"
 	log "github.com/sirupsen/logrus"
 )
@@ -23,12 +25,23 @@ func (s *Scheduler) Start(jobs []*Job) {
 			continue
 		}
 
+		if job.IsDone {
+			continue
+		}
+
 		log.WithFields(log.Fields{
 			"job": job.Name,
 		}).Debug("scheduler: Adding job to cron")
 
 		job.Agent = s.Agent
-		s.Cron.AddJob(job.Schedule, job)
+
+		schedule := job.Schedule
+		schedule = strings.Trim(schedule, "")
+		if schedule == "@oneway" {
+			job.Run()
+		} else {
+			s.Cron.AddJob(job.Schedule, job)
+		}
 
 	}
 	s.Cron.Start()

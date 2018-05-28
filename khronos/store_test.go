@@ -32,13 +32,14 @@ func TestStoreJob(t *testing.T) {
 	}
 
 	testJob := &Job{
-		Name:        "test1",
-		Schedule:    "@every 2s",
+		Name:        "test3",
+		Schedule:    "@every 5s",
 		JobType:     "rpc",
-		Payload:     map[string]string{"eth": "coinid-1"},
+		Payload:     map[string]string{"eos": "coinid-3"},
 		Disabled:    false,
 		Concurrency: "forbid",
 		Application: "spider",
+		Tags:        map[string]string{"type": "websocket"},
 	}
 
 	// Check that we still get an empty job list
@@ -110,14 +111,14 @@ func TestStoreProcessor(t *testing.T) {
 	}
 	fmt.Println("Got all processors in test", processors)
 
-	// addr := fmt.Sprintf("%s:%d", testProcessor.IP, testProcessor.Port)
-	// if _, err := store.DeleteProcessor(testProcessor.Application, addr); err != nil {
-	// 	t.Fatalf("error deleting processor: %s", err)
-	// }
+	addr := fmt.Sprintf("%s:%d", testProcessor.IP, testProcessor.Port)
+	if _, err := store.DeleteProcessor(testProcessor.Application, addr); err != nil {
+		t.Fatalf("error deleting processor: %s", err)
+	}
 
-	// if _, err := store.DeleteProcessor(testProcessor.Application, addr); err != nil {
-	// 	t.Fatalf("error processor deletion should fail: %s", err)
-	// }
+	if _, err := store.DeleteProcessor(testProcessor.Application, addr); err != nil {
+		t.Fatalf("error processor deletion should fail: %s", err)
+	}
 
 }
 
@@ -152,13 +153,12 @@ func TestStoreExecution(t *testing.T) {
 }
 
 func createTestStore() *Store {
-	store := NewStore("etcdv3", []string{"127.0.0.1:2379"}, "/khronos")
+	store := NewStore("etcdv3", []string{"127.0.0.1:2379"}, "/khronos-test")
 	return store
 }
 
 func cleanTestKVSpace(s *Store) error {
-	return nil
-	err := s.Client.DeleteTree("/khronos")
+	err := s.Client.DeleteTree("/khronos-test")
 	if err != nil && err != store.ErrKeyNotFound {
 		return err
 	}

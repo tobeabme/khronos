@@ -82,18 +82,48 @@ func (r *RPCServer) MakeJob(ctx context.Context, args *Job, reply *RPCReply) err
 }
 
 func (r *RPCServer) ExecutionDone(ctx context.Context, args *Execution, reply *RPCReply) error {
-	log.WithFields(log.Fields{
-		"execution": args,
-		"reply":     reply,
-	}).Debug("RPCServer: ExecutionDone be called by workerRPC.ExecutionDone.")
+	args.mux.Lock()
+	defer args.mux.Unlock()
+
+	//sometimes Done event come earlier than Do event.
+	//done must be executed after do event.
+	prvIsDone := make(chan bool)
+	go func() {
+		for {
+			prvEx, prvErr := r.agent.store.ExistExecution(args)
+			if prvErr != nil {
+				log.WithFields(log.Fields{
+					"prvEx":     prvEx,
+					"execution": args,
+					"prvErr":    prvErr,
+				}).Info("RPCServer: ExecutionDone invoked ExistExecution fail.")
+			}
+			log.WithFields(log.Fields{
+				"prvEx":     prvEx,
+				"execution": args,
+			}).Debug("RPCServer: ExecutionDone ExistExecution.")
+			if prvEx != nil {
+				prvIsDone <- true
+				return
+			}
+
+		}
+	}()
+
+	<-prvIsDone
 
 	args.FinishedAt = time.Now()
 	_, err := r.agent.store.SetExecution(args)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"err": err,
-		}).Error("RPCServer: SetExecution fail.")
+		}).Error("RPCServer: ExecutionDone invoked SetExecution fail.")
 	}
+
+	log.WithFields(log.Fields{
+		"execution": args,
+		"reply":     reply,
+	}).Debug("RPCServer: ExecutionDone be called by workerRPC.ExecutionDone.")
 
 	job, err := r.agent.store.GetJob(args.JobName)
 	if err != nil {
@@ -118,13 +148,20 @@ func (r *RPCServer) ExecutionDone(ctx context.Context, args *Execution, reply *R
 		}).Error("RPCServer: SetJob fail.")
 	}
 
+	go args.DecCounter(args.NodeName, "undo")
+	go args.DecCounter(args.NodeName, args.Tags["type"])
+
 	reply.Ack = reply.Ack + 1
 	reply.Success = true
 	return nil
 }
 
 func (rc *RPCClient) ExecutionDo(args *Execution) {
+	args.mux.Lock()
+	defer args.mux.Unlock()
+
 	for _, p := range rc.ServerAddr {
+
 		addr := fmt.Sprintf("tcp@%s:%d", p.IP, p.Port)
 
 		d := client.NewPeer2PeerDiscovery(addr, "")
@@ -135,7 +172,7 @@ func (rc *RPCClient) ExecutionDo(args *Execution) {
 		log.WithFields(log.Fields{
 			"Node":      p,
 			"Execution": args,
-		}).Debug("ExecutionDo assign job to work node")
+		}).Debug("rpc.ExecutionDo assign job to work node")
 
 		rpcReply := &RPCReply{}
 		err := rc.xclient.Call(context.Background(), "ExecutionDo", args, rpcReply)
@@ -145,6 +182,7 @@ func (rc *RPCClient) ExecutionDo(args *Execution) {
 			}).Error("failed to call")
 
 		} else {
+
 			log.WithFields(log.Fields{
 				"rpcReply":  rpcReply,
 				"Execution": args,
@@ -154,7 +192,11 @@ func (rc *RPCClient) ExecutionDo(args *Execution) {
 				rc.agent.store.SetExecution(args)
 			}
 
+			go args.IncCounter(args.NodeName, "undo")
+			go args.IncCounter(args.NodeName, args.Tags["type"])
+
 		}
+
 	}
 
 }

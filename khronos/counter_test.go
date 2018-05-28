@@ -16,6 +16,6 @@ func TestCounter(t *testing.T) {
 	c.Minus(nodeName, "undone")
 	c.Minus(nodeName, "undone")
 
-	fmt.Println("Counter.Plus++++++++", c, Count)
+	fmt.Println("Counter.Plus++++++++", c, Gcounter)
 
 }

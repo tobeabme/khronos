@@ -147,7 +147,7 @@ func (s *Store) WatchJobsTree() (<-chan []*store.KVPair, error) {
 	if !isEx {
 		j := &Job{
 			Name:        "watch",
-			Schedule:    "@yearly",
+			Schedule:    "@oneway",
 			JobType:     "rpc",
 			Disabled:    true,
 			Concurrency: "forbid",
@@ -418,35 +418,51 @@ func (s *Store) GetExecutionGroup(execution *Execution) ([]*Execution, error) {
 
 // Returns executions for a job grouped and with an ordered index
 // to facilitate access.
-func (s *Store) GetGroupedExecutions(jobName string) (map[int64][]*Execution, []int64, error) {
-	execs, err := s.GetExecutions(jobName)
-	if err != nil {
-		return nil, nil, err
-	}
-	groups := make(map[int64][]*Execution)
-	for _, exec := range execs {
-		groups[exec.Group] = append(groups[exec.Group], exec)
-	}
+// func (s *Store) GetGroupedExecutions(jobName string) (map[int64][]*Execution, []int64, error) {
+// 	execs, err := s.GetExecutions(jobName)
+// 	if err != nil {
+// 		return nil, nil, err
+// 	}
+// 	groups := make(map[int64][]*Execution)
+// 	for _, exec := range execs {
+// 		groups[exec.Group] = append(groups[exec.Group], exec)
+// 	}
 
-	// Build a separate data structure to show in order
-	var byGroup int64arr
-	for key := range groups {
-		byGroup = append(byGroup, key)
-	}
-	sort.Sort(sort.Reverse(byGroup))
+// 	// Build a separate data structure to show in order
+// 	var byGroup int64arr
+// 	for key := range groups {
+// 		byGroup = append(byGroup, key)
+// 	}
+// 	sort.Sort(sort.Reverse(byGroup))
 
-	return groups, byGroup, nil
-}
+// 	return groups, byGroup, nil
+// }
 
 // Save a new execution and returns the key of the new saved item or an error.
+
+// Get a execution
+func (s *Store) ExistExecution(execution *Execution) (*Execution, error) {
+	key := execution.Key()
+	res, err := s.Client.Get(fmt.Sprintf("%s/executions/%s/%s", s.keyspace, execution.JobName, key), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var ex Execution
+	if err = json.Unmarshal([]byte(res.Value), &ex); err != nil {
+		return nil, err
+	}
+
+	log.WithFields(log.Fields{
+		"execution": ex,
+	}).Debug("store.ExistExecution: Retrieved a execution from datastore")
+
+	return &ex, nil
+}
+
 func (s *Store) SetExecution(execution *Execution) (string, error) {
 	exJson, _ := json.Marshal(execution)
 	key := execution.Key()
-
-	log.WithFields(log.Fields{
-		"job":       execution.JobName,
-		"execution": key,
-	}).Debug("store: Setting key")
 
 	err := s.Client.Put(fmt.Sprintf("%s/executions/%s/%s", s.keyspace, execution.JobName, key), exJson, nil)
 	if err != nil {
@@ -458,24 +474,34 @@ func (s *Store) SetExecution(execution *Execution) (string, error) {
 		return "", err
 	}
 
+	log.WithFields(log.Fields{
+		"job":       execution.JobName,
+		"key":       key,
+		"execution": execution,
+		"err":       err,
+	}).Debug("store: Setting key")
+
 	execs, err := s.GetExecutions(execution.JobName)
 	if err != nil {
 		log.Errorf("store: No executions found for job %s", execution.JobName)
 	}
 
-	// Delete all execution results over the limit, starting from olders
+	// Delete all success of execution results over the limit, starting from olders
 	if len(execs) > MaxExecutions {
 		//sort the array of all execution groups by StartedAt time
 		sort.Sort(ExecList(execs))
-		for i := 0; i < len(execs)-MaxExecutions+100; i++ {
-			log.WithFields(log.Fields{
-				"job":       execs[i].JobName,
-				"execution": execs[i].Key(),
-			}).Debug("store: to detele key")
-			err := s.Client.Delete(fmt.Sprintf("%s/executions/%s/%s", s.keyspace, execs[i].JobName, execs[i].Key()))
-			if err != nil {
-				log.Errorf("store: Trying to delete overflowed execution %s", execs[i].Key())
+		for i := 0; i < len(execs); i++ {
+			if execs[i].Success == true {
+				log.WithFields(log.Fields{
+					"job":       execs[i].JobName,
+					"execution": execs[i].Key(),
+				}).Debug("store: to detele key")
+				err := s.Client.Delete(fmt.Sprintf("%s/executions/%s/%s", s.keyspace, execs[i].JobName, execs[i].Key()))
+				if err != nil {
+					log.Errorf("store: Trying to delete overflowed execution %s", execs[i].Key())
+				}
 			}
+
 		}
 	}
 
